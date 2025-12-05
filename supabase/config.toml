@@ -1,0 +1,4 @@
+project_id = "hugoywfkdmclortcahcz"
+
+[functions.anime-chat]
+verify_jwt = false
