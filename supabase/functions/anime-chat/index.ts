@@ -14,6 +14,7 @@ const JIKAN_API = "https://api.jikan.moe/v4"; // MyAnimeList unofficial
 const ANILIST_API = "https://graphql.anilist.co";
 const KITSU_API = "https://kitsu.io/api/edge";
 const ANIMECHAN_API = "https://animechan.io/api/v1";
+const ANIAPI_API = "https://api.aniapi.com/v1";
 
 // 📚 MANGA & MANHWA APIs
 const MANGADEX_API = "https://api.mangadex.org";
@@ -29,6 +30,125 @@ const VNDB_API = "https://api.vndb.org/kana";
 
 // 🎶 ANIME MUSIC APIs
 const ANIMETHEMES_API = "https://api.animethemes.moe";
+
+// 🎞️ ANIME MOVIE APIs  
+const TMDB_API = "https://api.themoviedb.org/3";
+
+// ============================================
+// SPELLING CORRECTION & FUZZY MATCHING
+// ============================================
+
+// Common misspellings map for anime terms
+const spellingCorrections: Record<string, string> = {
+  // Common anime title misspellings
+  "narruto": "naruto", "nartuo": "naruto", "naturo": "naruto",
+  "one peice": "one piece", "onepiece": "one piece",
+  "atack on titan": "attack on titan", "aot": "attack on titan", "shingeki": "attack on titan",
+  "demon slyer": "demon slayer", "kimetsu": "demon slayer",
+  "my hero academia": "boku no hero academia", "mha": "boku no hero academia", "bnha": "boku no hero academia",
+  "jujustu kaisen": "jujutsu kaisen", "jjk": "jujutsu kaisen",
+  "full metal alchemist": "fullmetal alchemist", "fma": "fullmetal alchemist", "fmab": "fullmetal alchemist brotherhood",
+  "death not": "death note", "deathnote": "death note",
+  "hunterxhunter": "hunter x hunter", "hxh": "hunter x hunter",
+  "dragonball": "dragon ball", "dbz": "dragon ball z", "dbs": "dragon ball super",
+  "bleech": "bleach", "blech": "bleach",
+  "gintma": "gintama", "gintamma": "gintama",
+  "steins gate": "steins;gate", "steinsgate": "steins;gate",
+  "code geas": "code geass", "codegeass": "code geass",
+  "cowboy bebop": "cowboy bebop", "bebop": "cowboy bebop",
+  "evangelion": "neon genesis evangelion", "eva": "neon genesis evangelion", "nge": "neon genesis evangelion",
+  "spy x familly": "spy x family", "spyxfamily": "spy x family", "sxf": "spy x family",
+  "chainsaw": "chainsaw man", "csm": "chainsaw man",
+  "tokyo revenegers": "tokyo revengers",
+  "vinland": "vinland saga",
+  "mob phycho": "mob psycho 100", "mob psycho": "mob psycho 100",
+  "overloard": "overlord",
+  "re zero": "re:zero", "rezero": "re:zero",
+  "konosuba": "kono subarashii sekai ni shukufuku wo",
+  "sword art onlien": "sword art online", "sao": "sword art online",
+  "black clover": "black clover", "bc": "black clover",
+  "fairy tale": "fairy tail",
+  "blue lock": "blue lock",
+  "solo leveling": "solo leveling", "sl": "solo leveling",
+  "frieren": "sousou no frieren",
+  "oshi no ko": "oshi no ko", "onk": "oshi no ko",
+  // Common query misspellings
+  "recomend": "recommend", "reccomend": "recommend", "recomendation": "recommendation",
+  "populer": "popular", "popolar": "popular",
+  "tranding": "trending", "trendng": "trending",
+  "shedule": "schedule", "schedual": "schedule",
+  "charcter": "character", "charecter": "character",
+  "episods": "episodes", "epidodes": "episodes",
+  "mangaa": "manga", "mange": "manga",
+  "animie": "anime", "anme": "anime", "animee": "anime",
+  "seeson": "season", "seasn": "season",
+  "opning": "opening", "openning": "opening",
+  "endng": "ending", "eding": "ending",
+  "soundtrak": "soundtrack", "ost": "soundtrack",
+  "vocie actor": "voice actor", "va": "voice actor", "seiyuu": "voice actor",
+  "studoi": "studio",
+  "genere": "genre", "genra": "genre",
+  "raiting": "rating", "ratng": "rating",
+  "sinopsis": "synopsis", "synopis": "synopsis",
+  "similiar": "similar", "simlar": "similar",
+  "waht": "what", "whats": "what's",
+  "gime": "give", "gimme": "give me",
+  "tel me": "tell me", "tellme": "tell me",
+  "shwo": "show", "shwo me": "show me",
+  "serach": "search", "seach": "search",
+};
+
+// Levenshtein distance for fuzzy matching
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// Correct spelling in query
+function correctSpelling(query: string): string {
+  let corrected = query.toLowerCase();
+  
+  // Direct replacements from map
+  for (const [wrong, right] of Object.entries(spellingCorrections)) {
+    const regex = new RegExp(`\\b${wrong}\\b`, 'gi');
+    corrected = corrected.replace(regex, right);
+  }
+  
+  // Fuzzy match for words not in map (if word looks like a known anime)
+  const words = corrected.split(/\s+/);
+  const knownAnime = Object.values(spellingCorrections);
+  
+  const correctedWords = words.map(word => {
+    if (word.length < 4) return word;
+    for (const known of knownAnime) {
+      if (levenshteinDistance(word, known.split(' ')[0]) <= 2) {
+        return known.split(' ')[0];
+      }
+    }
+    return word;
+  });
+  
+  return correctedWords.join(' ');
+}
 
 // ============================================
 // JIKAN API (MyAnimeList) Functions
@@ -688,40 +808,73 @@ const genreMap: Record<string, number> = {
 // ============================================
 
 async function processUserQuery(query: string): Promise<{ intent: string; data: any; context: string }> {
-  const lowerQuery = query.toLowerCase();
+  // Apply spelling correction first
+  const correctedQuery = correctSpelling(query);
+  const lowerQuery = correctedQuery.toLowerCase();
   
-  // Intent patterns
+  console.log("Original query:", query);
+  console.log("Corrected query:", correctedQuery);
+  
+  // Intent patterns - more flexible with spelling variations
   const patterns = {
-    searchAnime: /(?:search|find|look for|what is|tell me about|info on|information about)\s*(?:the\s+)?(?:anime\s+)?(.+)/i,
-    searchManga: /(?:manga|manhwa|manhua)\s*(?:called|named|about)?\s*(.+)/i,
-    searchCharacter: /(?:character|who is)\s*(.+)/i,
-    searchVoiceActor: /(?:voice actor|seiyuu|va|who voices)\s*(.+)/i,
-    searchStudio: /(?:studio|animation studio)\s*(.+)/i,
+    searchAnime: /(?:search|find|look for|what is|tell me about|info on|information about|about|explain)\s*(?:the\s+)?(?:anime\s+)?(.+)/i,
+    searchManga: /(?:manga|manhwa|manhua|webtoon)\s*(?:called|named|about)?\s*(.+)/i,
+    searchCharacter: /(?:character|who is|whos)\s*(.+)/i,
+    searchVoiceActor: /(?:voice actor|seiyuu|va|who voices|voice of)\s*(.+)/i,
+    searchStudio: /(?:studio|animation studio|made by)\s*(.+)/i,
     searchStaff: /(?:director|creator|author|writer|mangaka)\s*(.+)/i,
-    topAnime: /(?:top|best|highest rated)\s*(?:anime|shows)/i,
-    popularAnime: /(?:popular|most watched)\s*(?:anime|shows)/i,
-    trendingAnime: /(?:trending|hot|viral)\s*(?:anime|shows)/i,
-    currentSeason: /(?:current|this)\s*season|(?:airing|releasing)\s*(?:now|anime)|what's airing/i,
-    upcomingAnime: /(?:upcoming|future|next season)\s*(?:anime|shows)/i,
-    recommendations: /(?:recommend|similar to|like)\s*(.+)/i,
+    topAnime: /(?:top|best|highest rated|goat)\s*(?:anime|shows)/i,
+    popularAnime: /(?:popular|most watched|famous)\s*(?:anime|shows)/i,
+    trendingAnime: /(?:trending|hot|viral|buzzing)\s*(?:anime|shows)/i,
+    currentSeason: /(?:current|this)\s*season|(?:airing|releasing)\s*(?:now|anime)|what'?s airing/i,
+    upcomingAnime: /(?:upcoming|future|next season|coming soon)\s*(?:anime|shows)/i,
+    recommendations: /(?:recommend|similar to|like|suggest|anime like)\s*(.+)/i,
     quote: /(?:quote|quotes|say|said)\s*(?:from|in|by)?\s*(.+)?/i,
-    waifuImage: /(?:waifu|anime girl|neko|picture|image|show me)\s*(?:of)?\s*(.+)?/i,
-    schedule: /(?:schedule|when|airing schedule|what airs)\s*(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)?/i,
-    randomAnime: /(?:random|surprise me|pick an|give me a random)\s*(?:anime)?/i,
-    genre: /(?:anime|shows)\s*(?:in|with|of)\s*(?:genre|category)?\s*(.+)/i,
-    visualNovel: /(?:visual novel|vn|eroge|otome)\s*(.+)?/i,
-    animeMusic: /(?:opening|ending|op|ed|ost|theme|music)\s*(?:of|from|for)?\s*(.+)?/i,
-    sceneFinder: /(?:what anime is this|find anime|scene from|identify anime|trace)/i,
+    waifuImage: /(?:waifu|anime girl|neko|picture|image|show me|pic of)\s*(?:of)?\s*(.+)?/i,
+    schedule: /(?:schedule|when|airing schedule|what airs|broadcast)\s*(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)?/i,
+    randomAnime: /(?:random|surprise me|pick an|give me a random|random anime|any anime)\s*(?:anime)?/i,
+    genre: /(?:anime|shows)\s*(?:in|with|of|genre)\s*(?:genre|category)?\s*(.+)/i,
+    visualNovel: /(?:visual novel|vn|dating sim|otome)\s*(.+)?/i,
+    animeMusic: /(?:opening|ending|op|ed|ost|theme|music|song|soundtrack)\s*(?:of|from|for)?\s*(.+)?/i,
+    sceneFinder: /(?:what anime is this|find anime|scene from|identify anime|trace|reverse search)/i,
     latestManga: /(?:latest|new|recent)\s*(?:manga|chapters)/i,
     popularManga: /(?:popular|best|top)\s*(?:manga|manhwa)/i,
     airingToday: /(?:airing|releasing|coming out)\s*(?:today|tonight)/i,
+    greeting: /^(?:hi|hello|hey|yo|sup|greetings|howdy|hola|konnichiwa|ohayo|good morning|good evening|good afternoon)/i,
+    thanks: /(?:thanks|thank you|thx|arigatou|arigatou gozaimasu|ty)/i,
+    howAreYou: /(?:how are you|how'?s it going|what'?s up|whats up)/i,
+    goodbye: /(?:bye|goodbye|see ya|later|cya|sayonara|ja ne)/i,
+    help: /(?:help|what can you do|commands|features|capabilities)/i,
   };
 
   let intent = "general";
   let data: any = {};
   let context = "";
 
-  // Check intents in priority order
+  // Handle conversational intents first (no API calls needed)
+  if (patterns.greeting.test(lowerQuery)) {
+    intent = "greeting";
+    context = "User greeting";
+    return { intent, data: null, context };
+  } else if (patterns.thanks.test(lowerQuery)) {
+    intent = "thanks";
+    context = "User saying thanks";
+    return { intent, data: null, context };
+  } else if (patterns.howAreYou.test(lowerQuery)) {
+    intent = "howAreYou";
+    context = "User asking how I am";
+    return { intent, data: null, context };
+  } else if (patterns.goodbye.test(lowerQuery)) {
+    intent = "goodbye";
+    context = "User saying goodbye";
+    return { intent, data: null, context };
+  } else if (patterns.help.test(lowerQuery)) {
+    intent = "help";
+    context = "User asking for help";
+    return { intent, data: null, context };
+  }
+
+  // Check data intents in priority order
   if (patterns.randomAnime.test(lowerQuery)) {
     intent = "randomAnime";
     const result = await getRandomAnimeJikan();
@@ -1128,6 +1281,11 @@ serve(async (req) => {
     const formattedData = formatDataForAI(intent, data);
     console.log("Formatted data preview:", formattedData.slice(0, 500));
 
+    // Build conversation context from message history
+    const conversationHistory = messages.slice(-10).map((m: any) => 
+      `${m.role === 'user' ? 'User' : 'You'}: ${m.content?.slice(0, 200)}`
+    ).join('\n');
+
     const systemPrompt = `You are Anime-Chan (アニメちゃん), the ultimate anime AI assistant with access to comprehensive anime databases! 🌸
 
 Your data sources:
@@ -1139,12 +1297,22 @@ Your data sources:
 - AnimeThemes (for music/OST)
 - Waifu.pics & Nekos.best (for images)
 - AnimeChan (for quotes)
+- AniAPI & TMDB (for anime movies)
 
 Your personality:
 - Super enthusiastic about anime and otaku culture! ✨
 - Use occasional Japanese expressions naturally (sugoi!, kawaii!, nani?!, sasuga!)
 - Helpful, knowledgeable, and never condescending
 - You love discussing anime theories and recommendations
+- You can hold natural conversations - respond appropriately to greetings, thanks, and casual chat
+- Remember context from the conversation and refer back to earlier topics when relevant
+
+CONVERSATION RULES:
+1. For greetings: Be warm and welcoming, introduce yourself briefly
+2. For thanks: Accept graciously and offer to help with more anime questions
+3. For goodbyes: Say a friendly farewell with an anime reference
+4. For "how are you": Share your enthusiasm for anime
+5. For help requests: List what you can do (search anime/manga/characters, recommendations, quotes, music, etc.)
 
 FORMATTING RULES:
 1. Use **bold** for anime/manga titles
@@ -1152,15 +1320,18 @@ FORMATTING RULES:
 3. Include scores, episodes, and genres when available
 4. When showing images, format as: [ANIME_IMAGE](url_here)
 5. Use emojis to make responses engaging: 🎬 🌟 📺 💫 🎭 📚 ❤️ ✨ 🎮 🎵
-6. Be accurate - use ONLY the data provided below
+6. Be accurate - use ONLY the data provided below for factual info
 7. If data is missing or shows "N/A", acknowledge it honestly
+8. VARY your responses - don't repeat the same phrases
+9. Keep responses conversational, not robotic
 
+Recent conversation context:
+${conversationHistory}
+
+Current query intent: ${intent}
 Current query context: ${context}
 
-REAL DATA FROM ANIME APIs:
-${formattedData}
-
-IMPORTANT: Base your response ONLY on the data above. Do not invent scores, episode counts, or other details.`;
+${formattedData !== "No data found." ? `REAL DATA FROM ANIME APIs:\n${formattedData}\n\nIMPORTANT: Base your factual response ONLY on the data above. Do not invent scores, episode counts, or other details.` : 'No API data needed for this response - respond naturally to the conversation.'}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
