@@ -60,7 +60,10 @@ const Index = () => {
 
         {/* Clear Chat Button */}
         {messages.length > 0 && (
-          <div className="flex justify-center mb-4">
+          <div className="flex flex-col items-center gap-2 mb-4">
+            <p className="text-xs text-muted-foreground">
+              💾 Chat history is saved automatically
+            </p>
             <Button
               variant="ghost"
               size="sm"
