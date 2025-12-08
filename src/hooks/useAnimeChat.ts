@@ -1,23 +1,63 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  timestamp?: number;
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/anime-chat`;
+const STORAGE_KEY = "anime-chat-history";
+const MAX_STORED_MESSAGES = 50;
+
+// Load messages from localStorage
+function loadStoredMessages(): Message[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        return parsed.slice(-MAX_STORED_MESSAGES);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to load chat history:", error);
+  }
+  return [];
+}
+
+// Save messages to localStorage
+function saveMessages(messages: Message[]) {
+  try {
+    const toStore = messages.slice(-MAX_STORED_MESSAGES);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
+  } catch (error) {
+    console.error("Failed to save chat history:", error);
+  }
+}
 
 export function useAnimeChat() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => loadStoredMessages());
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveMessages(messages);
+    }
+  }, [messages]);
+
   const sendMessage = useCallback(async (input: string) => {
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = { role: "user", content: input };
+    const userMessage: Message = { 
+      role: "user", 
+      content: input,
+      timestamp: Date.now()
+    };
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
@@ -27,6 +67,16 @@ export function useAnimeChat() {
     let assistantContent = "";
 
     try {
+      // Get current time info to pass to the backend
+      const now = new Date();
+      const timeInfo = {
+        currentTime: now.toISOString(),
+        localTime: now.toLocaleTimeString(),
+        localDate: now.toLocaleDateString(),
+        dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      };
+
       const response = await fetch(CHAT_URL, {
         method: "POST",
         headers: {
@@ -35,6 +85,7 @@ export function useAnimeChat() {
         },
         body: JSON.stringify({
           messages: [...messages, userMessage],
+          timeInfo,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -60,7 +111,7 @@ export function useAnimeChat() {
       let textBuffer = "";
 
       // Add empty assistant message that we'll update
-      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+      setMessages((prev) => [...prev, { role: "assistant", content: "", timestamp: Date.now() }]);
 
       while (true) {
         const { done, value } = await reader.read();
@@ -159,7 +210,12 @@ export function useAnimeChat() {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
-  }, []);
+    localStorage.removeItem(STORAGE_KEY);
+    toast({
+      title: "Chat cleared",
+      description: "Your conversation history has been deleted.",
+    });
+  }, [toast]);
 
   return {
     messages,

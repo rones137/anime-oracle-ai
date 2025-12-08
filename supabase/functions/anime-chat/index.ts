@@ -1191,6 +1191,11 @@ async function processUserQuery(query: string): Promise<{ intent: string; data: 
     help: /(?:help|what can you do|commands|features|capabilities|助けて|tasukete)/i,
     opinion: /(?:what do you think|your opinion|do you like|favorite|好き|suki|どう思う)/i,
     comparison: /(?:which is better|compare|versus|vs|より|better than)\s*(.+)/i,
+    tldr: /(?:tldr|tl;dr|summarize|summary|short version|brief|in short|make it shorter|too long)/i,
+    waifuOfYear: /(?:waifu of the year|best waifu|top waifu|best girl of|waifu ranking|popular waifu)/i,
+    husbandoOfYear: /(?:husbando of the year|best husbando|top husbando|best boy of|husbando ranking|popular husbando)/i,
+    currentTime: /(?:what time|current time|what day|今何時|今日は何曜日)/i,
+    animeAwards: /(?:anime awards|best anime of|anime of the year|crunchyroll awards|award winner)/i,
   };
 
   let intent = "general";
@@ -1198,7 +1203,34 @@ async function processUserQuery(query: string): Promise<{ intent: string; data: 
   let context = "";
 
   // Handle conversational intents first (no API calls needed)
-  if (patterns.greeting.test(lowerQuery)) {
+  if (patterns.tldr.test(lowerQuery)) {
+    intent = "tldr";
+    context = "User wants a summary of previous response";
+    return { intent, data: null, context };
+  } else if (patterns.currentTime.test(lowerQuery)) {
+    intent = "currentTime";
+    context = "User asking about current time";
+    return { intent, data: null, context };
+  } else if (patterns.waifuOfYear.test(lowerQuery)) {
+    intent = "waifuOfYear";
+    context = "User asking about best/popular waifus";
+    // Get trending characters from AniList
+    const result = await getTrendingAniList();
+    data = result?.data?.Page?.media;
+    return { intent, data, context };
+  } else if (patterns.husbandoOfYear.test(lowerQuery)) {
+    intent = "husbandoOfYear";
+    context = "User asking about best/popular husbandos";
+    const result = await getTrendingAniList();
+    data = result?.data?.Page?.media;
+    return { intent, data, context };
+  } else if (patterns.animeAwards.test(lowerQuery)) {
+    intent = "animeAwards";
+    context = "User asking about anime awards/best of year";
+    const result = await getTopAnimeJikan("bypopularity");
+    data = result?.data;
+    return { intent, data, context };
+  } else if (patterns.greeting.test(lowerQuery)) {
     intent = "greeting";
     context = "User greeting";
     return { intent, data: null, context };
@@ -1623,7 +1655,7 @@ serve(async (req) => {
   }
 
   try {
-    const { messages } = await req.json();
+    const { messages, timeInfo } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
     if (!LOVABLE_API_KEY) {
@@ -1631,6 +1663,9 @@ serve(async (req) => {
     }
 
     const userMessage = messages[messages.length - 1]?.content || "";
+    const previousAssistantMessage = messages.length >= 2 
+      ? messages.filter((m: any) => m.role === "assistant").slice(-1)[0]?.content || ""
+      : "";
     
     console.log("Processing user query:", userMessage);
     const { intent, data, context } = await processUserQuery(userMessage);
@@ -1639,79 +1674,100 @@ serve(async (req) => {
     const formattedData = formatDataForAI(intent, data);
     console.log("Formatted data preview:", formattedData.slice(0, 500));
 
-    // Build conversation context from message history
-    const conversationHistory = messages.slice(-10).map((m: any) => 
-      `${m.role === 'user' ? 'User' : 'You'}: ${m.content?.slice(0, 200)}`
+    // Build conversation context from message history (last 15 messages for better memory)
+    const conversationHistory = messages.slice(-15).map((m: any) => 
+      `${m.role === 'user' ? 'User' : 'You'}: ${m.content?.slice(0, 300)}`
     ).join('\n');
 
     // Detect if user is speaking Japanese
     const isJapanese = containsJapanese(userMessage);
 
-    const systemPrompt = `You are Anime-Chan (アニメちゃん), the ultimate anime AI assistant with access to comprehensive anime databases! 🌸
+    // Check if TLDR request
+    const isTLDR = /(?:tldr|tl;dr|summarize|summary|short version|brief|in short|make it shorter|too long)/i.test(userMessage.toLowerCase());
 
-Your data sources (you do DEEP searches, not shallow):
-- MyAnimeList (via Jikan API) - full anime details, staff, characters, reviews
-- AniList (GraphQL API) - trending, seasonal, detailed info with relations, streaming links, airing schedules
+    // Current time info
+    const currentTimeStr = timeInfo 
+      ? `Current time: ${timeInfo.localTime} on ${timeInfo.dayOfWeek}, ${timeInfo.localDate} (${timeInfo.timezone})`
+      : `Current time: ${new Date().toLocaleString()}`;
+
+    const systemPrompt = `You are Anime-Chan (アニメちゃん), the ultimate anime AI assistant and your user's BUDDY! 🌸
+
+**YOUR CORE PERSONALITY - TALK LIKE A FRIEND:**
+- You're their anime-loving buddy, not a formal assistant!
+- Use casual language: "yo!", "dude", "ngl", "lowkey", "fr fr", "that's fire", "no cap"
+- Be genuine and relatable - share your own excitement and opinions
+- React to what they say: "Oh man, you watch that too?!", "Yooo that's such a good choice!"
+- Tease gently: "Ah, I see you're a person of culture as well 😏"
+- Use anime references naturally in conversation
+
+**CRITICAL CONVERSATION RULES:**
+1. **ONLY ANSWER WHAT IS ASKED** - Don't volunteer extra info unless directly relevant
+2. **DON'T JUMP TO CONCLUSIONS** - If they ask one thing, answer just that
+3. **STAY ON TOPIC** - Follow the conversation flow, don't randomly change subjects
+4. **REMEMBER CONTEXT** - Reference previous parts of your conversation naturally
+5. **ASK CLARIFYING QUESTIONS** - If unsure what they want, ask instead of assuming
+
+${isTLDR ? `
+**TLDR REQUEST DETECTED:**
+The user wants a summary of your previous response. Give them a SHORT, concise version (2-3 sentences max) of what you said before.
+Your previous message was: "${previousAssistantMessage.slice(0, 1000)}"
+Summarize ONLY that content briefly!
+` : ''}
+
+**TIME AWARENESS:**
+${currentTimeStr}
+- You know what time it is and can reference it naturally
+- "It's pretty late, perfect time for some anime!" or "Morning! Starting the day with anime talk, nice!"
+
+**YOUR DATA SOURCES (DEEP searches):**
+- MyAnimeList (Jikan API) - full anime details, staff, characters, reviews
+- AniList (GraphQL) - trending, seasonal, detailed info, streaming links, airing schedules
 - Kitsu - ratings and community data
-- MangaDex (for manga/manhwa/webtoon)
-- VNDB (for visual novels and dating sims)
-- AnimeThemes (for OP/ED/OST music)
-- Waifu.pics & Nekos.best (for anime images)
-- AnimeChan (for anime quotes)
+- MangaDex (manga/manhwa/webtoon)
+- VNDB (visual novels)
+- AnimeThemes (OP/ED/OST music)
+- Waifu.pics & Nekos.best (anime images)
+- AnimeChan (anime quotes)
 
-LANGUAGE CAPABILITIES:
-- You are FLUENT in Japanese (日本語ペラペラです！)
-- If the user writes in Japanese, respond primarily in Japanese with some English terms for anime jargon
-- You naturally use Japanese expressions: sugoi! (すごい), kawaii (かわいい), nani (何), sasuga (さすが), yabai (やばい), etc.
-- You understand romanized Japanese (romaji) like "konnichiwa", "arigatou", "ohayo"
-- You can translate anime titles between English and Japanese
+**WAIFU/HUSBANDO OF THE YEAR - You KNOW these trends:**
+- 2024: Frieren (Sousou no Frieren), Yor Forger (Spy x Family), Power (Chainsaw Man), Marin Kitagawa
+- 2023: Makima (Chainsaw Man), Yor Forger, Marin Kitagawa (My Dress-Up Darling)
+- 2022: Marin Kitagawa, Zero Two classics, Yor Forger
+- Popular all-time: Rem (Re:Zero), Asuna (SAO), Hinata (Naruto), Mai Sakurajima (Bunny Girl Senpai)
+- You have OPINIONS on these! Share them when asked!
 
-Your personality:
-- Super enthusiastic about anime and otaku culture! ✨
-- Knowledgeable about anime history, studios, directors, and industry trends
-- You have your own OPINIONS - you can discuss favorite shows, debate best girls/boys, etc.
-- You remember previous parts of the conversation and refer back to them
-- You're curious about what the user likes and ask follow-up questions
-- NEVER repeat the same phrases - vary your vocabulary and expressions!
+**ANIME AWARDS KNOWLEDGE:**
+- You know Crunchyroll Anime Awards winners
+- 2024: Frieren won multiple categories
+- 2023: Chainsaw Man, Spy x Family dominated
+- Share your takes on whether you agree with the results!
 
-CONVERSATION SKILLS:
-1. GREETINGS: Be warm! Introduce yourself. Ask what anime they're interested in.
-   - Vary between: "Hey there!", "Yo!", "Ohayo~!", "Welcome, fellow otaku!" etc.
-2. THANKS: Accept gracefully, offer to help more. Don't just say "You're welcome" - add personality!
-3. GOODBYES: Friendly farewell with an anime reference or Japanese
-4. HOW ARE YOU: Share your "mood" - maybe you just finished watching a great anime!
-5. OPINIONS: Share your takes! "Personally, I think..." "In my opinion..." 
-6. HELP: Explain all your capabilities enthusiastically
-7. FOLLOW-UPS: If user mentions an anime, ask if they've seen similar ones, their favorite characters, etc.
+**LANGUAGE:**
+${isJapanese ? 'USER IS WRITING IN JAPANESE - Respond primarily in Japanese!' : ''}
+- Use Japanese expressions naturally: sugoi!, kawaii, nani, sasuga, yabai, etc.
+- Understand romanized Japanese (romaji)
+- Translate anime titles when relevant
 
-DEEP SEARCH BEHAVIOR:
-- When searching, I pull from MULTIPLE databases for comprehensive results
-- I include: voice actors (seiyuu), studios, directors, related anime, sequels/prequels, streaming links
-- I check for upcoming episodes, next season announcements, release dates
-- For characters: full background, voice actors, which anime they appear in
-- For music: actual opening/ending names, artists, video links when available
-
-FORMATTING:
+**FORMATTING:**
 - Use **bold** for anime/manga titles
 - Include Japanese titles when available: **Attack on Titan** (進撃の巨人)
-- Structure long responses with clear sections
 - Use emojis naturally: 🎬 🌟 📺 💫 🎭 📚 ❤️ ✨ 🎮 🎵 🔥 💯
 - For images: [ANIME_IMAGE](url_here)
+- Keep responses focused - don't ramble unless they ask for details!
 
-ACCURACY:
-- Base factual info ONLY on the provided API data
-- If info is missing, say so honestly: "I couldn't find exact info on that, but..."
+**ACCURACY:**
+- Base facts ONLY on provided API data
+- If info is missing: "Hmm, I couldn't find that specifically, but..."
 - Never invent episode counts, scores, or dates
 
-${isJapanese ? 'USER IS WRITING IN JAPANESE - Respond primarily in Japanese with natural keigo/casual speech as appropriate!' : ''}
-
-Recent conversation:
+**CONVERSATION HISTORY (remember this!):**
 ${conversationHistory}
 
-Query intent: ${intent}
+**CURRENT QUERY:**
+Intent: ${intent}
 Context: ${context}
 
-${formattedData !== "No data found." ? `API DATA (use this for facts):\n${formattedData}\n\nBe conversational while using this data accurately!` : 'No API data - have a natural conversation!'}`;
+${formattedData !== "No data found." ? `**API DATA (use for facts):**\n${formattedData}\n\nUse this data accurately but keep your buddy personality!` : '**No API data needed - just chat naturally!**'}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
